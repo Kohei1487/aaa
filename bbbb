@@ -1,0 +1,63 @@
+import time
+import math
+import board
+import busio
+import adafruit_ads1x15.ads1115 as ADS
+from adafruit_ads1x15.analog_in import AnalogIn
+
+# ADS1115の初期設定
+i2c = busio.I2C(board.SCL, board.SDA)
+ads = ADS.ADS1115(i2c)
+
+# フルスケール範囲設定 (PGA設定)
+ads.gain = 1  # +/- 4.096V (pga = 0b001 に相当)
+
+# 定数設定
+R = 300      # センサーの負荷抵抗値（Ω）
+N = 3000     # センサーの巻き線比
+FS = 4.096   # フルスケール値 (gain=1のときは+/- 4.096V)
+NUMBER = 1400  # サンプリング数
+
+# チャンネル0とチャンネル1を定義
+chan0 = AnalogIn(ads, ADS.P0)
+chan1 = AnalogIn(ads, ADS.P1)
+
+# RMS電流を計算する関数
+def read_current_rms(channel):
+    sum_square = 0.0
+    data_count = 0
+
+    while data_count < NUMBER:
+        # 電圧値を取得
+        voltage = channel.voltage
+        # 巻き線比と抵抗から電流値を計算
+        current = voltage * N / R
+        # 二乗和を計算
+        sum_square += current ** 2.0
+        data_count += 1
+
+    # 二乗平均平方根 (RMS)を返す
+    return math.sqrt(sum_square / data_count)
+
+# 測定開始
+print("Measurement started")
+try:
+    while True:
+        # チャンネル0のRMS電流を計算
+        i_rms0 = read_current_rms(chan0)
+        # チャンネル1のRMS電流を計算
+        i_rms1 = read_current_rms(chan1)
+
+        # 測定結果を表示
+        current_time = time.strftime("%Y/%m/%d %H:%M:%S", time.localtime())
+        print(f"{current_time}, {i_rms0 * 100:.6f} A, {i_rms1 * 100:.6f} A")
+
+        # 結果をファイルに保存
+        filename = f"wattmeter/{time.strftime('%Y%m%d')}wattmeter.txt"
+        with open(filename, "a") as f:
+            f.write(f"{current_time}, {i_rms0 * 100:.6f}, {i_rms1 * 100:.6f}\n")
+
+        time.sleep(1)
+
+except KeyboardInterrupt:
+    print("Measurement stopped.")
