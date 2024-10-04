@@ -1,0 +1,9 @@
+cd "/home/pi/" && gcc RamuranCurrent2.c -o RamuranCurrent2 && "/home/pi/"RamuranCurrent2
+/usr/bin/ld: /tmp/ccUlxaZp.o: in function `main':
+RamuranCurrent2.c:(.text+0xc): undefined reference to `gpioInitialise'
+/usr/bin/ld: RamuranCurrent2.c:(.text+0x38): undefined reference to `i2cOpen'
+/usr/bin/ld: /tmp/ccUlxaZp.o: in function `setupADC':
+RamuranCurrent2.c:(.text+0x13c): undefined reference to `i2cWriteWordData'
+/usr/bin/ld: /tmp/ccUlxaZp.o: in function `readADC':
+RamuranCurrent2.c:(.text+0x16c): undefined reference to `i2cReadWordData'
+collect2: error: ld returned 1 exit status
