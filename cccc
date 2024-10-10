@@ -3,60 +3,61 @@ import math
 import smbus2
 import os
 
-# Set configuration register (2)
+# コンフィギュレーションレジスタを設定する関数 (2)
 def set_config_register(bus, ads_address, mux, pga, dr):
     register_byte = [0] * 3
-    register_byte[0] = 1  # Select config register
-    register_byte[1] = 0x80 | (mux << 4) | (pga << 1)  # Set mux and pga
-    register_byte[2] = 0x03 | (dr << 5)  # Set data rate
+    register_byte[0] = 1  # コンフィギュレーションレジスタの指定
+    register_byte[1] = 0x80 | (mux << 4) | (pga << 1)  # muxとpgaを設定
+    register_byte[2] = 0x03 | (dr << 5)  # データレートを設定
     bus.write_i2c_block_data(ads_address, register_byte[0], register_byte[1:])
 
-# Read current RMS (3)
+# 電流のRMS値を計算する関数 (3)
 def read_current_rms(bus, ads_address, FS, N, R):
     register_byte = [0] * 2
-    bus.write_byte(ads_address, 0)  # Select conversion register
+    bus.write_byte(ads_address, 0)  # コンバージョンレジスタの指定
 
-    NUMBER = 1400
-    sum_squared = 0.0
+    NUMBER = 1400  # サンプリング数
+    sum_squared = 0.0  # 電流値の二乗和
     for _ in range(NUMBER):
         data = bus.read_i2c_block_data(ads_address, 0, 2)
-        val = ((data[0] + 128) % 256 - 128) * 256 + data[1]  # 2's complement conversion
-        e = val * FS / 32768.0  # Secondary voltage
-        i = e * N / R  # Primary current calculation using turn ratio and resistance
-        sum_squared += i ** 2
+        val = ((data[0] + 128) % 256 - 128) * 256 + data[1]  # 2の補数形式で変換
+        e = val * FS / 32768.0  # 2次側の電圧を計算
+        i = e * N / R  # 巻き線比と抵抗値から1次側の電流を計算
+        sum_squared += i ** 2  # 電流の二乗値を加算
 
-    return math.sqrt(sum_squared / NUMBER)  # RMS value
+    return math.sqrt(sum_squared / NUMBER)  # 二乗平均平方根 (RMS値) を返す
 
-# Main function
+# メイン関数
 def main():
-    bus = smbus2.SMBus(1)  # Open I2C bus 1
-    ads_address = 0x48  # I2C address for the device
-    mux = 0b000  # Input channel
-    pga = 0b001  # PGA setting
-    dr = 0b111  # Data rate
-    R = 300  # Load resistor value
-    N = 3000  # Turn ratio
+    bus = smbus2.SMBus(1)  # I2Cバス1を開く
+    ads_address = 0x48  # ADS1115のI2Cアドレス
+    mux = 0b000  # 入力チャネルの指定
+    pga = 0b001  # PGA設定
+    dr = 0b111  # データレート設定
+    R = 300  # 負荷抵抗値（Ω）
+    N = 3000  # 巻き線比
 
+    # フルスケール電圧の計算
     if 0b001 <= pga <= 0b100:
-        FS = 4.096 / (2 ** (pga - 1))  # Full-scale voltage
+        FS = 4.096 / (2 ** (pga - 1))  # フルスケール値をPGAから計算
     else:
-        print("Error: Couldn't convert to FS!")
+        print("エラー: フルスケール値の計算に失敗しました!")
         return
 
-    print(f"Measurement start: {time.strftime('%Y/%m/%d %H:%M:%S')}")
+    print(f"測定開始: {time.strftime('%Y/%m/%d %H:%M:%S')}")
 
     while True:
-        # Channel 0
-        mux = 0b100
+        # チャネル0 (AIN0)
+        mux = 0b100  # AIN0を選択
         set_config_register(bus, ads_address, mux, pga, dr)
         i_rms0 = read_current_rms(bus, ads_address, FS, N, R)
 
-        # Channel 1
-        mux = 0b101
+        # チャネル1 (AIN1)
+        mux = 0b101  # AIN1を選択
         set_config_register(bus, ads_address, mux, pga, dr)
         i_rms1 = read_current_rms(bus, ads_address, FS, N, R)
 
-        # Save data to file
+        # 結果をファイルに保存
         filename = f"wattmeter/{time.strftime('%Y%m%d')}wattmeter.txt"
         os.makedirs(os.path.dirname(filename), exist_ok=True)
         with open(filename, "a") as file:
