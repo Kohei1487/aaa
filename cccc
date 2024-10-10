@@ -1,50 +1,62 @@
 import time
 import math
+import smbus2
 import os
-import board
-import busio
-from adafruit_ads1x15.ads1x15 import ADS1115
-from adafruit_ads1x15.analog_in import AnalogIn
 
-# コンフィギュレーションレジスタの設定 (2)
-def set_config_register(ads, mux):
-    # 明示的な設定は不要。`AnalogIn`がチャネルに基づいてmuxの設定を管理します。
-    pass
+# Set configuration register (2)
+def set_config_register(bus, ads_address, mux, pga, dr):
+    register_byte = [0] * 3
+    register_byte[0] = 1  # Select config register
+    register_byte[1] = 0x80 | (mux << 4) | (pga << 1)  # Set mux and pga
+    register_byte[2] = 0x03 | (dr << 5)  # Set data rate
+    bus.write_i2c_block_data(ads_address, register_byte[0], register_byte[1:])
 
-# 電流のRMS値を読み取る (3)
-def read_current_rms(ads, channel, FS, N, R):
-    NUMBER = 1400  # サンプリング数
-    sum_squared = 0.0  # 二乗和
+# Read current RMS (3)
+def read_current_rms(bus, ads_address, FS, N, R):
+    register_byte = [0] * 2
+    bus.write_byte(ads_address, 0)  # Select conversion register
+
+    NUMBER = 1400
+    sum_squared = 0.0
     for _ in range(NUMBER):
-        e = channel.voltage  # チャネルから電圧を取得
-        i = e * N / R  # 巻き線比と抵抗から電流を計算
+        data = bus.read_i2c_block_data(ads_address, 0, 2)
+        val = ((data[0] + 128) % 256 - 128) * 256 + data[1]  # 2's complement conversion
+        e = val * FS / 32768.0  # Secondary voltage
+        i = e * N / R  # Primary current calculation using turn ratio and resistance
         sum_squared += i ** 2
 
-    return math.sqrt(sum_squared / NUMBER)  # RMS値を返す
+    return math.sqrt(sum_squared / NUMBER)  # RMS value
 
-# メイン関数
+# Main function
 def main():
-    # I2CとADS1115の初期化
-    i2c = busio.I2C(board.SCL, board.SDA)
-    ads = ADS1115(i2c)
-    ads.gain = 1  # ゲインの設定（FSの計算に対応）
+    bus = smbus2.SMBus(1)  # Open I2C bus 1
+    ads_address = 0x48  # I2C address for the device
+    mux = 0b000  # Input channel
+    pga = 0b001  # PGA setting
+    dr = 0b111  # Data rate
+    R = 300  # Load resistor value
+    N = 3000  # Turn ratio
 
-    R = 300  # 負荷抵抗値（Ω）
-    N = 3000  # 巻き線比
-    FS = 4.096  # ゲイン1でのフルスケール電圧 (ADS1115)
+    if 0b001 <= pga <= 0b100:
+        FS = 4.096 / (2 ** (pga - 1))  # Full-scale voltage
+    else:
+        print("Error: Couldn't convert to FS!")
+        return
 
-    print(f"測定開始: {time.strftime('%Y/%m/%d %H:%M:%S')}")
+    print(f"Measurement start: {time.strftime('%Y/%m/%d %H:%M:%S')}")
 
     while True:
-        # チャネル0 (AIN0)
-        chan0 = AnalogIn(ads, ADS1115.P0)
-        i_rms0 = read_current_rms(ads, chan0, FS, N, R)
+        # Channel 0
+        mux = 0b100
+        set_config_register(bus, ads_address, mux, pga, dr)
+        i_rms0 = read_current_rms(bus, ads_address, FS, N, R)
 
-        # チャネル1 (AIN1)
-        chan1 = AnalogIn(ads, ADS1115.P1)
-        i_rms1 = read_current_rms(ads, chan1, FS, N, R)
+        # Channel 1
+        mux = 0b101
+        set_config_register(bus, ads_address, mux, pga, dr)
+        i_rms1 = read_current_rms(bus, ads_address, FS, N, R)
 
-        # データをファイルに保存
+        # Save data to file
         filename = f"wattmeter/{time.strftime('%Y%m%d')}wattmeter.txt"
         os.makedirs(os.path.dirname(filename), exist_ok=True)
         with open(filename, "a") as file:
@@ -54,5 +66,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-
-
